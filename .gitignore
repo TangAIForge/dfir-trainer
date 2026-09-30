@@ -1,0 +1,32 @@
+# ===== 密钥与凭证（绝对不能提交）=====
+*.keystore
+*.jks
+*.pem
+*.key
+make_local_bat.py
+license_gen.py
+密钥工具-私有勿上传/
+
+# ===== 本机私有构建环境 =====
+# 构建脚本中的本机路径请按实际环境自行修改
+
+# ===== 本地开发辅助脚本（含个人路径）=====
+deliver.py
+final_check.py
+inspect_apk.py
+
+# ===== 用户数据与备份 =====
+dfir_backup_*.json
+*_backup.json
+
+# ===== 构建中间产物 =====
+assets/
+classes/
+dexout/
+unsigned.apk
+aligned.apk
+aligned-signed.apk
+res.zip
+debug.keystore
+ud*/
+*.log
