@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<title>应急响应每日特训 | DFIR Trainer</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="scanline"></div>
+<aside class="sidebar">
+  <div class="logo">
+    <div class="logo-icon">🛡</div>
+    <div>
+      <div class="logo-title">应急特训</div>
+      <div class="logo-sub">DFIR DAILY TRAINER</div>
+    </div>
+  </div>
+  <nav class="nav">
+    <button class="nav-btn active" data-view="dashboard"><span class="ico">📊</span>每日打卡</button>
+    <button class="nav-btn" data-view="mcq"><span class="ico">📝</span>选择题</button>
+    <button class="nav-btn" data-view="fill"><span class="ico">✍️</span>填空题</button>
+    <button class="nav-btn" data-view="scenario"><span class="ico">💻</span>实操场景</button>
+    <button class="nav-btn" data-view="echo"><span class="ico">🔍</span>回显对比</button>
+    <button class="nav-btn" data-view="wrong"><span class="ico">📕</span>错题本</button>
+    <button class="nav-btn" data-view="commands"><span class="ico">📚</span>命令手册</button>
+    <button class="nav-btn" data-view="reports"><span class="ico">📈</span>数据中心</button>
+    <button class="nav-btn" data-view="about"><span class="ico">⚙️</span>关于/自定义</button>
+  </nav>
+  <div class="sidebar-foot">
+    <div id="streakBadge" class="streak-badge">🔥 连续打卡 0 天</div>
+    <div class="foot-tip">本机 127.0.0.1 · 仅本地访问</div>
+  </div>
+</aside>
+
+<main class="main">
+  <section id="view-dashboard" class="view active">
+    <header class="view-head"><h1>每日打卡 <span class="accent">// 让应急思路成为肌肉记忆</span></h1></header>
+    <div class="dash-grid">
+      <div class="card checkin-card">
+        <div class="card-title">今日签到</div>
+        <div id="todayDate" class="today-date"></div>
+        <button id="checkinBtn" class="btn btn-primary btn-big">📋 立即打卡</button>
+        <div id="checkinMsg" class="muted small"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">今日特训目标</div>
+        <div id="goalList" class="goal-list"></div>
+      </div>
+      <div class="card stat-row">
+        <div class="stat"><div class="stat-num" id="statStreak">0</div><div class="stat-label">连续打卡</div></div>
+        <div class="stat"><div class="stat-num" id="statMcq">0</div><div class="stat-label">已练选择题</div></div>
+        <div class="stat"><div class="stat-num" id="statFill">0</div><div class="stat-label">已练填空题</div></div>
+        <div class="stat"><div class="stat-num" id="statScn">0</div><div class="stat-label">已完成场景</div></div>
+      </div>
+      <div class="card">
+        <div class="card-title">最近 14 天打卡热力</div>
+        <div id="heatmap" class="heatmap"></div>
+      </div>
+      <div class="card quick-card">
+        <div class="card-title">快速开练</div>
+        <div class="quick-btns">
+          <button class="btn btn-ghost" data-quick="mcq-learn">📝 学习模式 10 题</button>
+          <button class="btn btn-ghost" data-quick="mcq-exam">⏱ 考试模式 20 题</button>
+          <button class="btn btn-ghost" data-quick="fill">✍️ 填空特训 10 题</button>
+          <button class="btn btn-ghost" data-quick="scenario">💻 实操场景</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">分类掌握度（按答题正确/练习次数）</div>
+        <div id="masteryBars" class="mastery"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="view-mcq" class="view">
+    <header class="view-head"><h1>选择题 <span class="accent">// 学习模式 · 考试模式</span></h1></header>
+    <div id="mcqConfig" class="card config-card">
+      <div class="cfg-row">
+        <label>模式</label>
+        <div class="seg" id="mcqModeSeg">
+          <button class="seg-btn active" data-mode="learn">📖 学习模式（即时讲解）</button>
+          <button class="seg-btn" data-mode="exam">⏱ 考试模式（限时判分）</button>
+        </div>
+      </div>
+      <div class="cfg-row">
+        <label>系统</label>
+        <div class="seg" id="mcqOsSeg">
+          <button class="seg-btn active" data-os="all">全部</button>
+          <button class="seg-btn" data-os="linux">Linux</button>
+          <button class="seg-btn" data-os="windows">Windows</button>
+          <button class="seg-btn" data-os="common">通用</button>
+        </div>
+      </div>
+      <div class="cfg-row">
+        <label>分类</label>
+        <select id="mcqCat" class="select"></select>
+        <label style="margin-left:16px">题数</label>
+        <select id="mcqCount" class="select">
+          <option>10</option><option selected>20</option><option>30</option><option>50</option>
+        </select>
+      </div>
+      <button id="mcqStart" class="btn btn-primary">开始练习 ▶</button>
+    </div>
+    <div id="mcqQuiz" class="quiz-wrap" style="display:none">
+      <div class="quiz-top">
+        <div id="mcqProgressTxt" class="muted"></div>
+        <div id="mcqTimer" class="timer hidden">⏱ 00:00</div>
+      </div>
+      <div class="progress-bar"><div id="mcqProgressBar" class="progress-fill"></div></div>
+      <div id="mcqNav" class="q-nav"></div>
+      <div id="mcqCard" class="card q-card"></div>
+      <div class="quiz-actions" id="mcqActions"></div>
+    </div>
+    <div id="mcqResult" style="display:none"></div>
+  </section>
+
+  <section id="view-fill" class="view">
+    <header class="view-head"><h1>填空题 <span class="accent">// 命令与关键路径默写</span></h1></header>
+    <div id="fillConfig" class="card config-card">
+      <div class="cfg-row">
+        <label>系统</label>
+        <div class="seg" id="fillOsSeg">
+          <button class="seg-btn active" data-os="all">全部</button>
+          <button class="seg-btn" data-os="linux">Linux</button>
+          <button class="seg-btn" data-os="windows">Windows</button>
+          <button class="seg-btn" data-os="common">通用</button>
+        </div>
+      </div>
+      <div class="cfg-row">
+        <label>分类</label>
+        <select id="fillCat" class="select"></select>
+        <label style="margin-left:16px">题数</label>
+        <select id="fillCount" class="select"><option>10</option><option selected>20</option><option>30</option></select>
+      </div>
+      <button id="fillStart" class="btn btn-primary">开始默写 ▶</button>
+    </div>
+    <div id="fillQuiz" class="quiz-wrap" style="display:none"></div>
+  </section>
+
+  <section id="view-scenario" class="view">
+    <header class="view-head"><h1>实操场景 <span class="accent">// 模拟终端 · 真实案例处置</span></h1></header>
+    <div id="scnList" class="scn-grid"></div>
+    <div id="scnDetail" style="display:none"></div>
+  </section>
+
+  <section id="view-echo" class="view">
+    <header class="view-head"><h1>回显对比实验室 <span class="accent">// 正常 vs 异常 · 逐条注释讲解</span></h1></header>
+    <div class="card cmd-toolbar">
+      <div class="seg" id="echoOsSeg">
+        <button class="seg-btn active" data-os="all">全部</button>
+        <button class="seg-btn" data-os="linux">🐧 Linux</button>
+        <button class="seg-btn" data-os="windows">🪟 Windows</button>
+        <button class="seg-btn" data-os="common">🧩 通用讲解</button>
+      </div>
+      <label style="display:flex;align-items:center;gap:6px;margin-left:auto;font-size:13px;color:var(--muted)">
+        <input type="checkbox" id="echoQuizToggle" checked> 进入时先"考考你"</label>
+    </div>
+    <div id="echoList" class="scn-grid"></div>
+    <div id="echoDetail" style="display:none"></div>
+  </section>
+
+  <section id="view-wrong" class="view">
+    <header class="view-head"><h1>错题本 <span class="accent">// 艾宾浩斯间隔复习 · 答对三次才算掌握</span></h1></header>
+    <div id="wrongHome"></div>
+    <div id="wrongQuiz" style="display:none"></div>
+  </section>
+
+  <section id="view-reports" class="view">
+    <header class="view-head"><h1>数据中心 <span class="accent">// 学习报告 · 成就勋章 · 结业认证 · 数据管理</span></h1></header>
+    <div id="reportsBody"></div>
+  </section>
+
+  <section id="view-commands" class="view">
+    <header class="view-head"><h1>命令手册 <span class="accent">// 覆盖 Linux + Windows 应急全流程</span></h1></header>
+    <div class="cmd-toolbar card">
+      <div class="seg" id="cmdOsSeg">
+        <button class="seg-btn active" data-os="linux">🐧 Linux (<span id="cntLinux">0</span>)</button>
+        <button class="seg-btn" data-os="windows">🪟 Windows (<span id="cntWin">0</span>)</button>
+      </div>
+      <input id="cmdSearch" class="input" placeholder="🔍 搜索命令 / 关键字（如 netstat、webshell、4625）">
+      <select id="cmdCat" class="select"></select>
+    </div>
+    <div id="cmdList" class="cmd-list"></div>
+  </section>
+
+  <section id="view-about" class="view">
+    <header class="view-head"><h1>关于 / 自定义 <span class="accent">// 持续升级你的题库</span></h1></header>
+    <div class="card">
+      <div class="card-title">项目结构</div>
+      <pre class="code-box">dfir-trainer/
+├── 启动特训.bat      ← 双击即启动（仅本机访问）
+├── server.py         ← 本地临时服务（127.0.0.1:8899）
+├── app/              ← 前端界面（可自行美化魔改）
+└── data/             ← 题库与命令库（纯 JSON，可直接编辑）
+    ├── commands_linux.json     Linux 应急命令手册
+    ├── commands_windows.json   Windows 应急命令手册
+    ├── mcq.json                选择题
+    ├── fill.json               填空题
+    └── scenarios.json          实操场景案例</pre>
+    </div>
+    <div class="card">
+      <div class="card-title">如何自定义 / 升级题库</div>
+      <ul class="about-list">
+        <li>用任意编辑器打开 <code>data/*.json</code>，按现有字段格式新增题目/命令/场景，保存后刷新页面即生效。</li>
+        <li>选择题字段：<code>id, os, category, difficulty, question, options[4], answer(0-3), explanation</code></li>
+        <li>填空题字段：<code>id, os, category, question(用 ____ 表示空), answers[等价写法数组], explanation</code></li>
+        <li>场景字段：<code>id, title, os, category, difficulty, background, steps[{prompt, commands, simulated_output, hint, explanation}], summary</code></li>
+        <li>学习进度与打卡记录保存在浏览器 localStorage（仅本机），换浏览器进度不共享。</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-title">数据统计</div>
+      <div id="aboutStats" class="about-stats"></div>
+    </div>
+  </section>
+</main>
+
+<script src="data.js"></script>
+<script src="workbench.js"></script>
+<script src="echo.js"></script>
+<script src="pro.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
